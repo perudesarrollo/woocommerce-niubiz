@@ -1,3 +1,51 @@
+console.log('joder visanet', configuration);
+
+payform.setConfiguration(configuration);
+
+var elementStyles = {
+    base: {
+        color: '#666666',
+        fontWeight: 700,
+        fontSize: '16px',
+        fontSmoothing: 'antialiased',
+        placeholder: {
+            color: '#999999'
+        },
+        autofill: {
+            color: '#e39f48',
+        }
+    },
+    invalid: {
+        color: '#E25950',
+        '::placeholder': {
+            color: '#FFCCA5',
+        }
+    }
+};
+
+var cardNumber = payform.createElement(
+    'card-number', {
+        style: elementStyles,
+        placeholder: 'Número de Tarjeta'
+    },
+    'txtNumeroTarjeta');
+
+
+cardNumber.then(element => {
+    element.on('bin', function(data) { //Tu código aquí
+        console.log('bin', data);
+    });
+    element.on('change', function(data) { //Tu código aquí
+        console.log('change', data);
+    });
+    element.on('dcc', function(data) { //Tu código aquí
+        console.log('dcc', data);
+    });
+    element.on('installments', function(data) { //Tu código aquí
+        console.log('installments', data);
+    });
+});
+
 function soloNumeros(e) {
     key = e.keyCode || e.which;
     tecla = String.fromCharCode(key).toLowerCase();

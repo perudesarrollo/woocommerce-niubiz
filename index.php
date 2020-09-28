@@ -15,6 +15,7 @@ define('VISA_STATIC_JS_CHECKOUT', 'https://static-content.vnforapps.com/v2/js/ch
 define('VISA_API_TOKENIZATION', 'https://%s.vnforapps.com/api.tokenization/api/v2/merchant/%d/query/%d');
 define('VISA_API_SECURITY', 'https://%s.vnforapps.com/api.security/v1/security');
 define('VISA_API_AUTHORIZATION', 'https://%s.vnforapps.com/api.authorization/v3/authorization/ecommerce/%d');
+define('VISA_API_AUTHORIZATION_RETRIVE', 'https://%s.vnforapps.com/api.authorization/v3/retrieve/purchase/%d/%d');
 
 include 'qas/librerias/funciones.php';
 add_action('plugins_loaded', 'woocommerce_niubiz_init', 0);
@@ -58,6 +59,8 @@ function woocommerce_niubiz_init()
             add_action('woocommerce_receipt_' . $this->id, array($this, 'receipt_page'));
             //add_action( 'woocommerce_update_options_payment_gateways_' . $this->id, array( $this, 'save_account_details' ) );
             add_action('woocommerce_thankyou_' . $this->id, array($this, 'thankyou_page'));
+            //
+
         }
 
         /** INCIO DE FORMULARIO DE CONFIGURACION */
@@ -209,6 +212,7 @@ function woocommerce_niubiz_init()
             $moneda = get_post_meta($order_id, "_order_currency", true);
             $vars = get_option("woocommerce_visanet_settings");
             $order_items = $order->get_items();
+
             if ($vars['recurrence'] == "yes") {
                 $data_recurrence = "TRUE";
                 $data_recurrenceamount = $vars['recurrencemaxamount'];
@@ -222,6 +226,7 @@ function woocommerce_niubiz_init()
                 $data_recurrenceamount = $vars['recurrenceamount'];
                 $data_recurrencefrequency = $vars['recurrencefrequency'];
             }
+
             if ($moneda == "USD") {
                 if ($vars['multicomercio'] == "yes") {
                     foreach ($order_items as $item) {
@@ -256,23 +261,22 @@ function woocommerce_niubiz_init()
                 }
             }
 
-            $key = securitykey($this->ambiente, $merid, $accessk, $seckey); // nuevo
+            $key = generateToken($this->ambiente, $accessk, $seckey);
             error_log("Visa::Securitykey::Key:: {$key}");
 
             // Capturamos IP del Cliente
-            $sessionTokenCustumer = [
+            $sessionBody = [
                 "amount" => $amount,
                 "clientIp" => $order_data->customer_ip_address,
                 'email' => $current_user->user_email,
-                'type_document' => @$order->get_meta('tipo_dni'),
-                'number_document' => @$order->get_meta('billing_dni'),
+                'type_document' => 'DNI',//@$order->get_meta('tipo_dni'),
+                'number_document' => '43526502',//@$order->get_meta('billing_dni'),
                 'order_id' => $order_id,
                 'date_register' => date("Y-m-d H:i:s"),
             ];
-            
-            $sessionKey = create_token($this->ambiente, $amount, $key, $merid, $accessk, $seckey, $sessionTokenCustumer);
+            $sessionKey = generateSesion($this->ambiente, $merid, $key, $sessionBody);
             error_log("Visa::create_token::SessionKey::: {$sessionKey}");
-            
+
             update_post_meta($order_id, '_sessionKey', $sessionKey);
             update_post_meta($order_id, '_order_key', $key);
             $entorno = $this->ambiente;
@@ -299,12 +303,9 @@ function woocommerce_niubiz_init()
             error_log("Visa::hash::numorden:: {$numorden}");
 
             $retorno = home_url() . "/wp-admin/admin-ajax.php?action=visanet&hash=" . $numorden;
-            //data-usertoken=\"".get_user_meta($current_user->ID, '_visanet_usertoken', true)."\" // campo bloqueado
-            $urlpost = ($this->ambiente == "dev") ? VISA_STATIC_JS_CHECKOUT_DEV : VISA_STATIC_JS_CHECKOUT;
-            error_log("Visa::urlpost:: {$urlpost}");
-            
-            return "<form action=\"$retorno\" method='post'>
 
+            $urlpost = ($this->ambiente == "dev") ? VISA_STATIC_JS_CHECKOUT_DEV : VISA_STATIC_JS_CHECKOUT;
+            return "<form action=\"$retorno\" method='post'>
                     <script src=\"$urlpost\"
                         data-sessiontoken=\"$sessionKey\"
                         data-merchantid=\"$merid\"
@@ -317,9 +318,9 @@ function woocommerce_niubiz_init()
                         data-showamount=\"\"
                         data-purchasenumber=\"$order_id\"
                         data-amount=\"$amount\"
-                        data-cardholdername=\"\"
-                        data-cardholderlastname=\"\"
-                        data-cardholderemail=\"\"
+                        data-cardholdername=\"" . $order_data->billing['first_name'] . "\"
+                        data-cardholderlastname=\"" . $order_data->billing['last_name'] . "\"
+                        data-cardholderemail=\"" . $current_user->user_email . "\"
                         data-usertoken=\"" . $current_user->user_email . "\"
                         data-recurrence=\"" . $data_recurrence . "\"
                         data-recurrencefrequency=\"" . $data_recurrencefrequency . "\"
@@ -333,7 +334,6 @@ function woocommerce_niubiz_init()
                         data-phone=\"\"
 						data-timeouturl=\"" . $this->url_to . "\"
                     /></script>
-
                 </form>";
         }
 
@@ -373,6 +373,26 @@ function woocommerce_niubiz_init()
             $moneda = get_post_meta($order_id, '_order_currency', true);
             $cliente = get_post_meta($order_id, '_billing_first_name', true) . " " . get_post_meta($order_id, '_billing_last_name', true);
             $sal = json_decode($datos, true);
+            
+
+            $order_data = (object) $order->get_data();
+            $sessionBody = [
+                "amount" => 12.35,
+                "clientIp" => $order_data->customer_ip_address,
+                'email' => $order_data->billing['email'],
+                'type_document' => @$order->get_meta('tipo_dni'),
+                'number_document' => @$order->get_meta('billing_dni'),
+                'order_id' => $order_id,
+                'date_register' => date("Y-m-d H:i:s"),
+            ];
+            echo "<pre>";   
+            $url = home_url();         
+            print_r($url);
+            // print_r($sessionBody);
+            print_r($sal);
+            echo "</pre>";
+            // echo $sessionKey = generateSesion($ambiente, $merid, $key, $sessionBody);
+
             $moneda = get_post_meta($order_id, '_order_currency', true);
             //var_dump($sal);
             if ($moneda == "PEN") {
@@ -530,7 +550,7 @@ function woocommerce_niubiz_init()
                 $rever = array_reverse($parsear);
                 $prefijo = $rever[3];
                 if ($moneda == "PEN") {
-                    $url = site_url('/' . $prefijo . '/order-received/' . $order_id . '/?key=' . $order->order_key);
+                    $url = site_url('index.php/' . $prefijo . '/order-received/' . $order_id . '/?key=' . $order->order_key);
                 } else {
                     $url = site_url('/' . $prefijo . '/order-received/' . $order_id . '/?key=' . $order->order_key);
                 }
@@ -555,6 +575,7 @@ function woocommerce_niubiz_init()
         global $woocommerce;
         $order_id = sanitize_key($_GET['ordernumber']);
         $order = new WC_Order($order_id);
+        echo true;
     }
 
     /** CAJA DE ACCIONES VISANET **/
@@ -572,9 +593,10 @@ function woocommerce_niubiz_init()
         );
 
     }
+
     function order_meta_box_visaccciones()
     {
-        global $woocommerce, $post;
+        global $woocommerce, $post, $product;
         $dir = plugin_dir_path(__FILE__);
         $order_id = $post->ID;
         $order = new WC_Order($order_id);
@@ -590,57 +612,35 @@ function woocommerce_niubiz_init()
             $password = get_post_meta($order_id, '_order_seckey', true);
             $ch = curl_init();
 
-            $url = sprintf(VISA_API_TOKENIZATION, $ambiente, $merchant_id, $order_id);
-            error_log("Visa::order::merchant_id:::{$merchant_id}");
-            error_log("Visa::order::api_key:::{$api_key}");
-            error_log("Visa::order::password:::{$password}");
-            error_log("Visa::order::api_url:::{$url}");
-            curl_setopt($ch, CURLOPT_URL, $url);
-            curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 20);
-            curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "PUT");
-            curl_setopt($ch, CURLOPT_POST, true);
-            curl_setopt($ch, CURLOPT_POSTFIELDS, $data_string);
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_USERPWD, $api_key . ':' . $password);
-            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-            curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
-            curl_setopt($ch, CURLOPT_HTTPHEADER, array(
-                'Accept: application/json',
-                'Content-Type: application/json')
-            );
-
-            $errors = curl_error($ch);
-            $result = curl_exec($ch);
-            $returnCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            $info = curl_getinfo($ch);
-            curl_close($ch);
-            error_log("Visa::order::result:::{$result}");
-            $json_result = json_decode($result, true);
-
-            $response = json_decode($result, true);
-
+            $token = generateToken($vars['ambiente'], $vars['accesskey'], $vars['secretkey']);
+            $url = sprintf(VISA_API_AUTHORIZATION_RETRIVE, $ambiente, $merchant_id, $order_id);
+            $response = getRequest($url, $token);
+            $response = json_decode($response);
             $url = home_url();
-            echo '<p><b>Pedido:</b> #' . @$response["purchaseNumber"] . '<br/>';
+            echo '<p><b>Pedido:</b> #' . @$response->order->purchaseNumber . '<br/>';
             echo '<b>Código de Comercio:</b> ' . $merchant_id . '<br/>';
-
-            if(isset($response['errorCode'])){
-
-                echo '<b>Código de Error:</b> ' . $response['errorCode'] . '<br/>';
-                echo '<b>Mensage:</b> ' . $response['errorMessage'] . '<br/>';
-                echo '<b>Response:</b><code> ' . $result . '</code><br/>';
-
-            } else {
-                $purchases = array_shift(array_slice($response["purchases"], 0, 1));
-                echo '<b>Estado Actual:</b> ' . $purchases["estado"] . '<br/><br/></p>';
-                echo "<script type='text/javascript' src='" . plugin_dir_url(__FILE__) . "/visanet.js'></script>";
-                if ($purchases["estado"] == "AUTORIZADO") {
-                    echo '<button id="vn" type="button" class="button save_order button-primary" onclick="acciones(\'' . $url . '\', \'1\', \'' . $order_id . '\', \'' . $response["purchaseNumber"] . '\', \'' . $merchant_id . '\', \'' . $api_key . '\', \'' . $password . '\');">Depositar</button>';
-                    echo '<br><br><button id="vn" type="button" class="button save_order button-primary" onclick="acciones(\'' . $url . '\', \'3\', \'' . $order_id . '\', \'' . $response["purchaseNumber"] . '\', \'' . $merchant_id . '\', \'' . $api_key . '\', \'' . $password . '\');">Anular</button>';
-                } elseif ($purchases["estado"] == "DEPOSITADO") {
-                    echo '<button id="vn" type="button" class="button save_order button-primary" onclick="acciones(\'' . $url . '\', \'2\', \'' . $order_id . '\', \'' . $response["purchaseNumber"] . '\', \'' . $merchant_id . '\', \'' . $api_key . '\', \'' . $password . '\');">Cancelar Deposito</button>';
-                } elseif ($purchases["estado"] == "ANULADO") {
-                    echo "<p style='color:#d60000; font-weight:bold;'>Sin acciones disponibles, el pedido se encuentra Anulado.</p>";
+            if (isset($response->order)) {
+                echo '<b>Estado Actual:</b> ' . $response->dataMap->STATUS . '<br/><br/></p>';
+                echo "<script type='text/javascript' src='" . plugin_dir_url(__FILE__) . "visanet.js'></script>";
+                switch ($response->dataMap->STATUS) {
+                    case "Confirmed":
+                        echo '<button id="vn" type="button" class="button save_order button-primary" onclick="acciones(\'' . $url . '\', \'1\', \'' . $order_id . '\', \'' . $response->order->purchaseNumber . '\', \'' . $merchant_id . '\', \'' . $api_key . '\', \'' . $password . '\');">Depositar</button>';
+                        echo '<br><br><button id="vn" type="button" class="button save_order button-primary" onclick="acciones(\'' . $url . '\', \'3\', \'' . $order_id . '\', \'' . $response->order->purchaseNumber . '\', \'' . $merchant_id . '\', \'' . $api_key . '\', \'' . $password . '\');">Anular</button>';
+                        break;
+                    case "DEPOSITADO":
+                        echo '<button id="vn" type="button" class="button save_order button-primary" onclick="acciones(\'' . $url . '\', \'2\', \'' . $order_id . '\', \'' . $response->order->purchaseNumber . '\', \'' . $merchant_id . '\', \'' . $api_key . '\', \'' . $password . '\');">Cancelar Deposito</button>';
+                        break;
+                    case "ANULADO":
+                        echo "<p style='color:#d60000; font-weight:bold;'>Sin acciones disponibles, el pedido se encuentra Anulado.</p>";
+                        break;
+                    default:
+                        echo '';
+                        break;
                 }
+            } else {
+                echo "<pre>";
+                print_r($response);
+                echo "</pre>";
             }
         }
     }

@@ -37,19 +37,7 @@ function create_json_post($post)
     return $request;
 }
 
-function contador()
-{
-    $archivo = "contador.txt";
-    $contador = 0;
-    $fp = fopen($archivo, "r");
-    $contador = fgets($fp, 26);
-    fclose($fp);
-    ++$contador;
-    $fp = fopen($archivo, "w+");
-    fwrite($fp, $contador, 26);
-    fclose($fp);
-    return $contador;
-}
+
 
 function securitykey($environment, $merchantId, $accessKey, $secretKey)
 {
@@ -70,38 +58,7 @@ function securitykey($environment, $merchantId, $accessKey, $secretKey)
     return $key;
 }
 
-function guarda_sessionToken($sessionToken)
-{
-    $archivo = "sessionToken.txt";
-    $fp = fopen($archivo, "w+");
-    fwrite($fp, $sessionToken, 96);
-    fclose($fp);
-}
-function recupera_sessionToken()
-{
-    $archivo = "sessionToken.txt";
-    $fp = fopen($archivo, "r");
-    $valor = fgets($fp, 96);
-    fclose($fp);
-    return $valor;
-}
-
-function guarda_sessionKey($sessionKey)
-{
-    $archivo = "sessionKey.txt";
-    $fp = fopen($archivo, "w+");
-    fwrite($fp, $sessionKey, 96);
-    fclose($fp);
-}
-
-function recupera_sessionKey()
-{
-    $archivo = "sessionKey.txt";
-    $fp = fopen($archivo, "r");
-    $valor = fgets($fp, 96);
-    fclose($fp);
-    return $valor;
-}
+// Start
 
 function authorization($environment, $key, $amount, $merchantId, $transactionToken, $purchaseNumber, $moneda)
 {
@@ -140,41 +97,126 @@ function authorization($environment, $key, $amount, $merchantId, $transactionTok
     return $json;
 }
 
-function create_token($environment, $amount, $key, $merchantId, $accessKey, $secretKey, $body)
-{
-    $url = ($environment === 'dev') ? sprintf(VISA_API_SESSION_DEV, $merchantId)  : sprintf(VISA_API_SESSION, $merchantId);
-    error_log("Visa::create_token::url:::({$environment})-{$url}");
-
-    $header = array("Content-Type: application/json", "Authorization: $key");
-    $request_body = "{
-        \"amount\":{$body['amount']},
-		\"channel\" : \"web\",
-        \"antifraud\" : {
-            \"clientIp\" : \"{$body['clientIp']}\",
-            \"merchantDefineData\" : {
-                \"MDD43\" : \"{$body['email']}\",
-                \"MDD56\" : \"{$body['type_document']}\",
-                \"MDD69\" : \"{$body['number_document']}\",
-                \"MDD79\" : \"{$body['order_id']}\",
-                \"MDD89\" : \"{$body['date_register']}\"
-            }
-        }
-    }";
-
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $url);
-    curl_setopt($ch, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
-    curl_setopt($ch, CURLOPT_HEADER, false);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, $header);
-    curl_setopt($ch, CURLOPT_POST, true);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-    curl_setopt($ch, CURLOPT_POSTFIELDS,$request_body);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    $response = curl_exec($ch);
-    $json = json_decode($response);
-    $dato = $json->sessionKey;
-    return $dato;
+// Generar Token
+function generateToken($env, $user, $pass) {
+    $url = ($env === 'dev') ? sprintf(VISA_API_SECURITY, 'apitestenv')  : sprintf(VISA_API_SECURITY, 'apiprod');
+    $curl = curl_init();
+    curl_setopt_array($curl, array(
+        CURLOPT_URL => $url,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_ENCODING => "",
+        CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+        CURLOPT_CUSTOMREQUEST => "POST",
+        CURLOPT_HTTPHEADER => array(
+        "Accept: */*",
+        'Authorization: '.'Basic '.base64_encode($user.":".$pass)
+        ),
+    ));
+    $response = curl_exec($curl);
+    curl_close($curl);
+    return $response;
 }
+
+// Crear Session
+function generateSesion($environment, $merchantId, $token, $body) {
+    $url = ($environment === 'dev') ? sprintf(VISA_API_SESSION_DEV, $merchantId)  : sprintf(VISA_API_SESSION, $merchantId);
+
+    $session = array(
+        'amount' => $body['amount'],
+        'antifraud' => array(
+            'clientIp' => $body['clientIp'],
+            'merchantDefineData' => array(
+                'MDD4' => $body['email'],
+                'MDD33' => @$body['type_document'],
+                'MDD34' => @$body['number_document'],
+                'MDD79' => @$body['order_id'],
+                'MDD89' => @$body['date_register'],
+            ),
+        ),
+        'channel' => 'web',
+    );
+    $json = json_encode($session);
+    $response = json_decode(postRequest($url, $json, $token));
+    return isset($response->sessionKey) ? $response->sessionKey : '';
+}
+
+// Autorizar
+function generateAuthorization($amount, $purchaseNumber, $transactionToken, $token) {
+    $data = array(
+        'antifraud' => null,
+        'captureType' => 'manual',
+        'channel' => 'web',
+        'countable' => true,
+        'order' => array(
+            'amount' => $amount,
+            'currency' => 'PEN',
+            'purchaseNumber' => $purchaseNumber,
+            'tokenId' => $transactionToken
+        ),
+        'recurrence' => null,
+        'sponsored' => null
+    );
+    $json = json_encode($data);
+    $session = json_decode(postRequest(VISA_URL_AUTHORIZATION, $json, $token));
+    return $session;
+}
+
+function postRequest($url, $postData, $token) {
+    $curl = curl_init();
+    curl_setopt_array($curl, array(
+        CURLOPT_URL => $url,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_ENCODING => "",
+        CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+        CURLOPT_CUSTOMREQUEST => "POST",
+        CURLOPT_HTTPHEADER => array(
+            'Authorization: '.$token,
+            'Content-Type: application/json'
+        ),
+        CURLOPT_POSTFIELDS => $postData
+    ));
+    $response = curl_exec($curl);
+    curl_close($curl);
+    return $response;
+}
+
+function getRequest($url, $token) {
+    $curl = curl_init();
+
+    curl_setopt_array($curl, array(
+      CURLOPT_URL => $url,
+      CURLOPT_RETURNTRANSFER => true,
+      CURLOPT_ENCODING => "",
+      CURLOPT_MAXREDIRS => 10,
+      CURLOPT_TIMEOUT => 0,
+      CURLOPT_FOLLOWLOCATION => true,
+      CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+      CURLOPT_CUSTOMREQUEST => "GET",
+      CURLOPT_HTTPHEADER => array(
+        "Authorization: {$token}"
+      ),
+    ));
+    
+    $response = curl_exec($curl);
+    
+    curl_close($curl);
+    return $response;
+}
+
+function generatePurchaseNumber(){
+    $archivo = "assets/purchaseNumber.txt"; 
+    $purchaseNumber = 222;
+    $fp = fopen($archivo,"r"); 
+    $purchaseNumber = fgets($fp, 100);
+    fclose($fp); 
+    ++$purchaseNumber; 
+    $fp = fopen($archivo,"w+"); 
+    fwrite($fp, $purchaseNumber, 100); 
+    fclose($fp);
+    return $purchaseNumber;
+}
+// End
+
 
 function post_form($array_post, $url)
 {
