@@ -1,4 +1,3 @@
-console.log('joder visanet', configuration);
 
 payform.setConfiguration(configuration);
 
